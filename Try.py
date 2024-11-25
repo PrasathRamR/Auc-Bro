@@ -4,6 +4,7 @@ import pandas as pd
 from streamlit_card import card
 import hmac
 
+'''
 def check_password():
     """Returns `True` if the user had a correct password."""
 
@@ -45,6 +46,7 @@ if not check_password():
 # Main Streamlit app starts here
 st.write("Here goes your normal Streamlit app...")
 st.button("Click me")
+'''
 # Function: Load the data into a DataFrame
 def load_data(file, file_type):
     if file_type == "CSV":
