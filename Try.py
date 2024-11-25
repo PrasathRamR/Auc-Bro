@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from streamlit_card import card
 import hmac
+import openpyxl
 
 st.set_page_config(
     page_title="Auc-Bro",  # Title of the app
