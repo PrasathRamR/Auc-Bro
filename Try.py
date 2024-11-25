@@ -16,7 +16,7 @@ def check_password():
     """Returns `True` if the user had a correct password."""
 
     def login_form():
-        st.title("Auc-Buddy: Auction Analysis Partner")
+        st.title("Auc-Buddy: Your Auction Companion")
         with st.form("Credentials"):
             st.text_input("Username", key="username")
             st.text_input("Password", type="password", key="password")
@@ -61,7 +61,7 @@ def load_data(file, file_type):
         raise ValueError("Unsupported file type")
 
 # StreamLit: Title
-st.title("Auc-Buddy: Auction Analysis Partner")
+st.title("Auc-Buddy: Your Auction Companion")
 st.sidebar.image("auc.png",width=250)
 
 # File type toggle
