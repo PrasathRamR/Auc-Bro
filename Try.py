@@ -20,8 +20,7 @@ def check_password():
             st.text_input("Username", key="username")
             st.text_input("Password", type="password", key="password")
             st.form_submit_button("Log in", on_click=password_entered)
-        st.write("For registrations, please contact")
-        st.button("Contact Us", on_click="mailto:rpstram@gmail.com")
+        st.write("For registrations, please mailto: rpstram@gmail.com / praveenram.ramasubramani@gmail.com")
 
     def password_entered():
         """Checks whether a password entered by the user is correct."""
