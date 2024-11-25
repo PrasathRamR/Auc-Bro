@@ -4,6 +4,13 @@ import pandas as pd
 from streamlit_card import card
 import hmac
 
+st.set_page_config(
+    page_title="Auc-Bro",  # Title of the app
+    page_icon="auc-removebg-preview.png",  
+    layout="wide",  # Layout of the app ("centered" or "wide")
+    initial_sidebar_state="expanded"  # Sidebar state ("expanded" or "collapsed")
+)
+
 def check_password():
     """Returns `True` if the user had the correct password."""
 
@@ -45,14 +52,6 @@ def load_data(file, file_type):
         return pd.read_excel(file)
     else:
         raise ValueError("Unsupported file type")
-
-st.set_page_config(
-    page_title="Auc-Bro",  # Title of the app
-    page_icon="auc-removebg-preview.png",  
-    layout="wide",  # Layout of the app ("centered" or "wide")
-    initial_sidebar_state="expanded"  # Sidebar state ("expanded" or "collapsed")
-)
-
 
 # StreamLit: Title
 st.title("Auc-Bro: Auction Analysis Partner")
