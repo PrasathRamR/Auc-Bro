@@ -49,11 +49,6 @@ def check_password():
 if not check_password():
     st.stop()
 
-# Main Streamlit app starts here
-st.write("Here goes your normal Streamlit app...")
-st.button("Click me")
-
-
 
 # Function: Load the data into a DataFrame
 def load_data(file, file_type):
