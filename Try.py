@@ -62,7 +62,7 @@ def load_data(file, file_type):
 
 # StreamLit: Title
 st.title("Auc-Bro: Auction Analysis Partner")
-st.sidebar.image("auc.png",width=250)
+st.sidebar.image("auc.png",width=100)
 
 # File type toggle
 file_type_toggle = st.checkbox("Upload XLSX file (toggle off for CSV)", value=False)
