@@ -86,6 +86,7 @@ def my_teams():
 
         # Sidebar Filters
         with st.sidebar:
+            st.image("auc.png", width=250)
             st.header("Filter Options")
             
             # Dynamically create filters based on available columns
