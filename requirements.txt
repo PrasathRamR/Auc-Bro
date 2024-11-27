@@ -2,3 +2,4 @@ streamlit-card==1.0.2
 streamlit==1.40.1
 pandas==2.2.3
 openpyxl==3.1.5
+streamlit_option_menu==0.4.0
