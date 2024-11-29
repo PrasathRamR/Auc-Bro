@@ -17,7 +17,7 @@ def check_password():
     """Returns `True` if the user had a correct password."""
 
     def login_form():
-        st.image("auc.png")
+        st.image("auc.png", width=250)
         st.title("Auc-Buddy: Your Auction Companion")
         with st.form("Credentials"):
             st.text_input("Username", key="username")
