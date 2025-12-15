@@ -5,6 +5,7 @@ from streamlit_option_menu import option_menu
 import json
 import hmac
 import openpyxl # Used for reading XLSX files
+import random # For simulating auction order or picking the next player
 
 st.set_page_config(
     page_title="Auc-Biddy",  # Title of the app
@@ -18,6 +19,8 @@ st.set_page_config(
 # DataFrames and Data
 if "auction_list_file_df" not in st.session_state:
     st.session_state["auction_list_file_df"] = None
+if "unsold_players" not in st.session_state:
+    st.session_state["unsold_players"] = [] # To hold Player IDs of unsold players
 
 # Live Auction Setup
 if "setup_complete" not in st.session_state:
@@ -30,6 +33,8 @@ if "total_budget" not in st.session_state:
     st.session_state.total_budget = 0 # To store the initial budget for reset/retention
 if "player_data" not in st.session_state:
     st.session_state.player_data = {}
+if "current_player_id" not in st.session_state:
+    st.session_state.current_player_id = None # Player currently being auctioned
 
 # Retention Data
 if "retention_data" not in st.session_state:
@@ -109,15 +114,22 @@ def home_page():
     auction_list_file = st.file_uploader(f"Upload a {file_type} file", type=[file_extension])
     
     if auction_list_file is not None:
-        if file_extension == 'csv':
-            auc_file_read = pd.read_csv(auction_list_file)
-        elif file_extension == 'xlsx':
-            auc_file_read = pd.read_excel(auction_list_file)
+        try:
+            if file_extension == 'csv':
+                auc_file_read = pd.read_csv(auction_list_file)
+            elif file_extension == 'xlsx':
+                auc_file_read = pd.read_excel(auction_list_file)
             
-        st.session_state["auction_list_file_df"] = pd.DataFrame(auc_file_read)
-        st.success("File uploaded successfully!")
+            # CRITICAL: Clean up column names by stripping whitespace and invalid characters
+            auc_file_read.columns = auc_file_read.columns.str.strip().str.replace('[^A-Za-z0-9_ ]+', '', regex=True).str.replace(' ', '_')
+            
+            st.session_state["auction_list_file_df"] = pd.DataFrame(auc_file_read)
+            st.success("File uploaded successfully!")
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+            st.session_state["auction_list_file_df"] = None
         
-    filtered_data = pd.DataFrame() # Initialize empty DataFrame outside the block
+    filtered_data = pd.DataFrame() 
 
     with st.sidebar:
         st.image("auc.png", width=250)
@@ -126,20 +138,21 @@ def home_page():
         if st.session_state.get("auction_list_file_df") is not None:
             st.success("Filters Activated")
             auction_list = st.session_state["auction_list_file_df"]
-            filtered_data = auction_list.copy() # CRITICAL: Start with a copy of the full DataFrame
+            filtered_data = auction_list.copy() 
             num_filters = 4
             filters = {}
+            
+            # Get valid column names after cleanup
+            valid_cols = [col for col in auction_list.columns if col not in ['First_Name', 'Surname']]
 
             for i in range(num_filters):
-                filter_column = st.selectbox(f"Select column for Filter {i + 1}", ["None"] + list(auction_list.columns), key=f"filter_col_home_{i}")
+                filter_column = st.selectbox(f"Select column for Filter {i + 1}", ["None"] + valid_cols, key=f"filter_col_home_{i}")
                 
                 if filter_column != "None":
-                    # Convert to string for safe unique list creation and selection
                     unique_values = ["All"] + auction_list[filter_column].dropna().astype(str).unique().tolist()
                     selected_value = st.selectbox(f"Select value for '{filter_column}'", unique_values, key=f"filter_val_home_{i}")
                     
                     if selected_value != "All":
-                        # Apply filter to the data, ensuring types match for comparison
                         filtered_data = filtered_data[filtered_data[filter_column].astype(str) == selected_value]
                         filters[filter_column] = selected_value
         else:
@@ -162,7 +175,6 @@ def my_teams():
     def flush_team(team_name):
         st.session_state[team_name] = pd.DataFrame(columns=["Player Name"])
     
-    # Initialize filtered_data outside the conditional block
     filtered_data = pd.DataFrame()
     auction_list = None
 
@@ -174,25 +186,24 @@ def my_teams():
             auction_list = st.session_state["auction_list_file_df"]
             st.header("Filter Options")
             
-            # CRITICAL: Start with a copy of the full DataFrame for filtering
             filtered_data = auction_list.copy() 
             num_filters = 4
+            valid_cols = [col for col in auction_list.columns if col not in ['First_Name', 'Surname']]
             
             for i in range(num_filters):
-                filter_column = st.selectbox(f"Select column for Filter {i + 1}", ["None"] + list(auction_list.columns), key=f"filter_col_team_{i}")
+                filter_column = st.selectbox(f"Select column for Filter {i + 1}", ["None"] + valid_cols, key=f"filter_col_team_{i}")
                 
                 if filter_column != "None":
                     unique_values = ["All"] + auction_list[filter_column].dropna().astype(str).unique().tolist()
                     selected_value = st.selectbox(f"Select value for '{filter_column}'", unique_values, key=f"filter_val_team_{i}")
                     
                     if selected_value != "All":
-                        # Apply filter to the data
                         filtered_data = filtered_data[filtered_data[filter_column].astype(str) == selected_value]
             
             # Player Selection Widget
-            if "First Name" in filtered_data.columns and "Surname" in filtered_data.columns and not filtered_data.empty:
-                # CRITICAL FIX: Ensure 'Full Name' is calculated on the filtered data
-                filtered_data["Full Name"] = filtered_data["First Name"].astype(str) + " " + filtered_data["Surname"].astype(str)
+            if "First_Name" in filtered_data.columns and "Surname" in filtered_data.columns and not filtered_data.empty:
+                
+                filtered_data["Full Name"] = filtered_data["First_Name"].astype(str) + " " + filtered_data["Surname"].astype(str)
                 concatenated_names = filtered_data["Full Name"].tolist()
 
                 st.write("Filtered Names:")
@@ -218,7 +229,6 @@ def my_teams():
                     new_row = {"Player Name": selected_name}
 
                     if selected_name not in team_df["Player Name"].values:
-                        # CRITICAL FIX: Use pd.concat for adding a row (safer than .loc with len)
                         st.session_state[current_team_key] = pd.concat([team_df, pd.DataFrame([new_row])], ignore_index=True)
                         st.success(f"Player '{selected_name}' has been added to the {team_choice}!")
                     else:
@@ -243,19 +253,16 @@ def my_teams():
         with tab:
             st.write(f"### {team_name}")
             
-            # Display and allow editing
             current_df = st.session_state[team_key].copy()
             edited_df = st.data_editor(current_df, key=f"editor_{team_key}", num_rows="dynamic")
             
-            # Handle state update from data editor
             if not current_df.equals(edited_df):
                  st.session_state[team_key] = edited_df
 
-            # Handle flush button
             if st.button(f"Flush {team_name}", key=f"flush_{team_key}"):
-                flush_team(team_key) 
+                flush_team(team_key)  
                 st.success(f"{team_name} has been cleared!")
-                st.rerun() # Recommended to immediately show the cleared state
+                st.rerun() 
 
 
 def squads():
@@ -265,7 +272,6 @@ def squads():
         st.title("Squads")
         st.write("View the current budgets and players bought/retained for each team.")
         
-        # Display Teams and Players using tabs
         tabs = st.tabs(st.session_state.team_list)
         for i, team_name in enumerate(st.session_state.team_list):
             with tabs[i]:
@@ -292,7 +298,8 @@ def live_auction():
             "team_list": st.session_state.team_list,
             "budgets": st.session_state.budgets,
             "player_data": st.session_state.player_data,
-            "total_budget": st.session_state.total_budget, # Save the initial budget
+            "total_budget": st.session_state.total_budget, 
+            "unsold_players": st.session_state.unsold_players,
         }
         return json.dumps(data)
         
@@ -303,13 +310,13 @@ def live_auction():
         st.session_state.budgets = data.get("budgets", {})
         st.session_state.player_data = data.get("player_data", {})
         st.session_state.total_budget = data.get("total_budget", 0)
+        st.session_state.unsold_players = data.get("unsold_players", [])
         st.session_state.setup_complete = True
         st.success("Auction data loaded successfully! Reloading...")
-        st.rerun() # Rerun to apply new state
+        st.rerun() 
 
     if not st.session_state.setup_complete:
         
-        # Store total_budget in session state so it can be used for budget reset in retention
         st.session_state.total_budget = st.number_input("Enter the total Budget for each team (in Lakhs):", min_value=0, step=1, key="total_budget_input")
         num_teams = st.number_input("Enter the number of teams:", min_value=1, step=1, key="num_teams")
 
@@ -321,8 +328,7 @@ def live_auction():
         if st.button("Save Teams"):
             if all(team_inputs) and st.session_state.total_budget > 0:
                 st.session_state.team_list = team_inputs
-                # CRITICAL: Initialize based on the input total_budget_input
-                st.session_state.budgets = {team: st.session_state.total_budget for team in team_inputs} 
+                st.session_state.budgets = {team: st.session_state.total_budget for team in team_inputs}  
                 st.session_state.player_data = {team: [] for team in team_inputs}
                 st.session_state.setup_complete = True
                 st.success("Teams saved successfully! Restarting the page to apply setup.")
@@ -332,118 +338,162 @@ def live_auction():
             else:
                 st.warning("Please fill in all team names before proceeding.")
     else:
-        st.header("Auction Management")
+        st.header("Auction Floor")
 
-        # Sidebar for Player Selection
+        # --- Sidebar Controls ---
         with st.sidebar:
             st.image("auc.png", width=250)
             
-            if st.session_state.auction_list_file_df is not None:
-                st.write("### Select Player by Player ID")
-                max_id = len(st.session_state.auction_list_file_df)
-                player_id = st.number_input("Enter Player ID (Index starts at 1):", min_value=1, max_value=max_id, step=1, key="player_id")
-                
-                # Player Info Preview
-                selected_player_row = pd.Series()
-                selected_player = "N/A"
-                if 1 <= player_id <= max_id:
-                    selected_player_row = st.session_state.auction_list_file_df.iloc[player_id - 1]
-                    try:
-                        selected_player = f"{selected_player_row.get('First Name', '')} {selected_player_row.get('Surname', '')}".strip()
-                    except AttributeError:
-                         selected_player = f"Player {player_id}"
-
-                st.markdown(f"**Player Name:** {selected_player}")
-
-                sold_bool = st.radio("Is the player sold?", ['Sold', 'Unsold'])
-                
-                sell_value = 0
-                team_sold = None
-                rtm_check = False
-                add_player_button = False
-
-                if sold_bool == 'Sold':
-                    sell_value = st.number_input("Enter the price (in Lakhs): ", min_value=0, key="sell_val")
-                    team_sold = st.selectbox("Sold to: ", st.session_state.team_list)
-                    rtm_check = st.checkbox("RTM (Right to Match)")
-                    add_player_button = st.button("Add Player to Squad")
-                else:
-                    st.error("Player is unsold!!")
-
-                # Logic to Add Player
-                if 1 <= player_id <= max_id:
-                    
-                    # Check if the player is already added
-                    player_exists = any(
-                        player["Player ID"] == player_id
-                        for team in st.session_state.team_list
-                        for player in st.session_state.player_data.get(team, [])
-                    )
-
-                    if sold_bool == "Sold" and add_player_button:
-                        if player_exists:
-                            st.warning(f"Player {selected_player} is already assigned to a team. Cannot add again.")
-                        elif sell_value > st.session_state.budgets.get(team_sold, 0):
-                             st.error(f"Cannot buy! {team_sold} only has {st.session_state.budgets.get(team_sold, 0)} Lakhs remaining.")
-                        else:
-                            player_data = {
-                                "Player ID": player_id,
-                                "Name": selected_player,
-                                "Price": sell_value,
-                                "RTM": rtm_check
-                            }
-                            st.session_state.player_data[team_sold].append(player_data)
-                            st.session_state.budgets[team_sold] -= sell_value  # Deduct budget
-                            st.success(f"Player {selected_player} added to team {team_sold}. Remaining Budget: {st.session_state.budgets[team_sold]} Lakhs.")
-                            st.rerun()
-                
-            else:
-                st.warning("Please upload a file to view player data.")
-
-        # Main Area: Player Row Display
-        if not selected_player_row.empty:
-            st.write("### Player Details")
-            st.data_editor(selected_player_row.to_frame().T, key="selected_player_view")
-        
-        # Main Area: Display Teams and Players (Same logic as in original)
-        st.write("### Teams and Players")
-        tabs = st.tabs(st.session_state.team_list)
-        for i, tab in enumerate(tabs):
-            with tab:
-                team_name = st.session_state.team_list[i]
-                current_budget = st.session_state.budgets.get(team_name, 'N/A')
-                st.code(f"Current Budget = {current_budget} Lakhs")
-                st.write(f"Managing {team_name}")
-                
-                team_players = st.session_state.player_data.get(team_name, [])
-                
-                if team_players:
-                    team_df = pd.DataFrame(team_players)
-
-                    # Display editable dataframe for team players
-                    st.write("Current Roster (Read-only, use inputs below to remove):")
-                    st.data_editor(team_df, key=f"team_df_{team_name}", disabled=True)
-                    
-                    # Allow removal of players
-                    remove_player_id = st.number_input(f"Enter Player ID to remove from {team_name}:", min_value=0, step=1, key=f"remove_player_{team_name}")
-                    remove_button = st.button(f"Remove Player from {team_name}", key=f"remove_button_{team_name}")
-
-                    if remove_button and remove_player_id > 0:
-                        player_to_remove = next((p for p in team_players if p["Player ID"] == remove_player_id), None)
+            st.subheader("Auction Controls")
+            
+            # Function to select the next player
+            def set_next_player(player_id=None):
+                if player_id is None:
+                    # Logic to select the next player ID sequentially or randomly
+                    if st.session_state.auction_list_file_df is not None:
+                        all_ids = set(st.session_state.auction_list_file_df.index.tolist())
                         
-                        if player_to_remove:
-                            st.session_state.player_data[team_name].remove(player_to_remove)
-                            st.session_state.budgets[team_name] += player_to_remove["Price"]  # Refund the price
-                            st.success(f"Player {player_to_remove['Name']} removed from {team_name}. Remaining Budget: {st.session_state.budgets[team_name]} Lakhs.")
-                            st.rerun()
+                        # Find already sold player IDs (index starts at 0, player_id starts at 1)
+                        sold_ids = {p['Player ID'] - 1 for team in st.session_state.team_list for p in st.session_state.player_data.get(team, []) if p['Player ID'] is not None}
+                        
+                        # Add previously unsold players (if not already sold now)
+                        unsold_ids = {pid - 1 for pid in st.session_state.unsold_players}
+
+                        available_ids = sorted(list((all_ids - sold_ids) | unsold_ids))
+                        
+                        if available_ids:
+                            # Pick the lowest available ID for a sequential feel
+                            st.session_state.current_player_id = available_ids[0] + 1
                         else:
-                            st.warning(f"No player with ID {remove_player_id} found in {team_name}.")
-
+                            st.warning("Auction Complete: No more players left in the pool.")
+                            st.session_state.current_player_id = None
+                            return
                 else:
-                    st.write("No players added yet.")
+                    st.session_state.current_player_id = player_id
+                
+                st.rerun()
+
+            # Button to fetch the next player
+            if st.session_state.auction_list_file_df is not None:
+                if st.button("Next Player"):
+                    set_next_player()
+                
+                # Manual Player ID Input (Useful for debugging or specific set calls)
+                manual_id = st.number_input("Or Enter Player ID Manually (Starts at 1):", min_value=1, max_value=len(st.session_state.auction_list_file_df), step=1, key="manual_player_id")
+                if st.button("Load Player"):
+                    set_next_player(manual_id)
+            else:
+                st.warning("Please upload the auction file in the Home tab first.")
+            
+            st.divider()
+
+            # Display Budgets
+            st.subheader("Team Budgets (Lakhs)")
+            budget_df = pd.DataFrame(st.session_state.budgets.items(), columns=["Team", "Budget"])
+            st.dataframe(budget_df, hide_index=True)
 
 
-        # Save/Load Functionality
+        # --- Main Area: Auction Floor ---
+        
+        if st.session_state.current_player_id is not None and st.session_state.auction_list_file_df is not None:
+            
+            player_id = st.session_state.current_player_id
+            df = st.session_state.auction_list_file_df
+            
+            try:
+                # Player ID from session state is 1-based, index is 0-based
+                player_row = df.iloc[player_id - 1] 
+                
+                player_name = f"{player_row.get('First_Name', '')} {player_row.get('Surname', '')}".strip()
+                reserve_price = player_row.get('Reserve_Price_Rs_Lakh', 'N/A')
+
+                st.markdown(f"## 🏏 Current Player: **{player_name}** (ID: {player_id})")
+                st.info(f"Reserve Price: **{reserve_price} Lakhs**")
+                
+                # Display Player Details
+                with st.expander("View Player Full Details"):
+                    st.data_editor(player_row.to_frame().T, key="current_player_details")
+                    
+                st.divider()
+                
+                # --- Bidding and Result Form ---
+                with st.form("Auction_Result_Form"):
+                    col_sold, col_price = st.columns(2)
+                    
+                    with col_sold:
+                        sold_or_unsold = st.radio("Auction Outcome:", ['Sold', 'Unsold'], key="auction_outcome")
+                    
+                    if sold_or_unsold == 'Sold':
+                        with col_price:
+                            final_price = st.number_input("Final Bid Price (Lakhs):", min_value=reserve_price if isinstance(reserve_price, (int, float)) else 0, step=1, key="final_price")
+                        
+                        team_sold = st.selectbox("Winning Team:", st.session_state.team_list, key="winning_team")
+                        
+                        # RTM Logic
+                        st.subheader("Right To Match (RTM)")
+                        # Identify teams eligible for RTM (usually teams that retained players, or specific rules)
+                        # For simplicity, we assume RTM is available to all teams other than the buyer.
+                        rtm_teams = [t for t in st.session_state.team_list if t != team_sold]
+                        
+                        use_rtm = st.checkbox(f"Was an RTM Card used by another team?", key="rtm_used")
+                        
+                        rtm_applied_team = None
+                        if use_rtm:
+                            rtm_applied_team = st.selectbox("Team that used RTM:", rtm_teams, key="rtm_team")
+                        
+                        st.markdown("**Note:** If RTM is used, the price and budget deduction apply to the RTM team, not the winning team.")
+
+
+                    submitted = st.form_submit_button("Finalize Auction Result")
+
+                    if submitted:
+                        # Logic to finalize the auction
+                        if sold_or_unsold == 'Sold':
+                            
+                            buyer_team = rtm_applied_team if use_rtm else team_sold
+                            
+                            if final_price > st.session_state.budgets.get(buyer_team, 0):
+                                st.error(f"Transaction failed! {buyer_team} does not have enough budget ({st.session_state.budgets[buyer_team]} Lakhs).")
+                            else:
+                                player_data = {
+                                    "Player ID": player_id,
+                                    "Name": player_name,
+                                    "Price": final_price,
+                                    "RTM": use_rtm,
+                                }
+                                # Deduct budget and add to squad
+                                st.session_state.player_data[buyer_team].append(player_data)
+                                st.session_state.budgets[buyer_team] -= final_price
+                                
+                                # Remove player from the unsold list if they were there
+                                if player_id in st.session_state.unsold_players:
+                                    st.session_state.unsold_players.remove(player_id)
+                                
+                                st.success(f"Player **{player_name}** sold to **{buyer_team}** for **{final_price} Lakhs** (RTM: {'Yes' if use_rtm else 'No'}).")
+                                
+                                # Move to the next player
+                                set_next_player() 
+
+                        elif sold_or_unsold == 'Unsold':
+                            st.session_state.unsold_players.append(player_id)
+                            st.warning(f"Player **{player_name}** is Unsold.")
+                            set_next_player()
+                            
+                        st.rerun()
+
+            except IndexError:
+                st.error(f"Error: Player ID {player_id} is out of bounds for the uploaded file.")
+                st.session_state.current_player_id = None
+                st.rerun()
+
+        elif st.session_state.auction_list_file_df is None:
+            st.warning("Please upload the auction list file in the Home tab to begin the auction setup.")
+        else:
+            st.info("Click 'Next Player' in the sidebar to start the auction!")
+
+        # Display Live/Load Controls and Squads below the auction floor
+        st.divider()
+        st.subheader("Auction Data Management")
         col1, col2 = st.columns(2)
         with col1:
              st.download_button("Save Auction Data", save_auction_data(), file_name="auction_data.json", mime="application/json")
@@ -451,6 +501,20 @@ def live_auction():
              uploaded_file = st.file_uploader("Load Auction Data", type=["json"])
              if uploaded_file is not None:
                  load_auction_data(uploaded_file)
+        
+        st.divider()
+        st.subheader("Current Squads and Budget")
+        squads_tabs = st.tabs(st.session_state.team_list)
+        for i, team_name in enumerate(st.session_state.team_list):
+            with squads_tabs[i]:
+                current_budget = st.session_state.budgets.get(team_name, 'N/A')
+                st.metric(label="Remaining Budget (Lakhs)", value=current_budget)
+                
+                team_players = st.session_state.player_data.get(team_name, [])
+                if team_players:
+                    st.dataframe(pd.DataFrame(team_players), hide_index=True)
+                else:
+                    st.write("No players yet.")
 
 
 def retention():
@@ -475,7 +539,6 @@ def retention():
 
         retained_players_inputs = []
         for i in range(num_retained_players):
-            # Try to pre-fill from current data
             default_name = current_retained[i][0] if i < len(current_retained) else ""
             default_price = current_retained[i][1] if i < len(current_retained) else 0
 
@@ -493,21 +556,16 @@ def retention():
             )
             retained_players_inputs.append((player_name, player_price))
             
-        # Store the current state of inputs
         st.session_state.retention_data[team_name] = retained_players_inputs
         
-        # Display retained players for the selected team (using current inputs)
         retained_df = pd.DataFrame(retained_players_inputs, columns=["Player Name", "Price (in Lakhs)"])
         st.write("### Retained Players (Preview)")
         st.data_editor(retained_df, key=f"retention_preview_{team_name}", disabled=["Player Name", "Price (in Lakhs)"])
         
-        # Push to Squads button and logic
         if st.button(f"Push {team_name} Retained Players to Squads and Deduct Budget"):
             
-            # CRITICAL FIX: To correctly calculate budget, reset to total budget first 
-            # (Assuming retention is done before buying in the Live Auction tab)
             st.session_state.budgets[team_name] = st.session_state.total_budget
-            st.session_state.player_data[team_name] = [] # Clear previous list before appending
+            st.session_state.player_data[team_name] = [] 
 
             for player_name, player_price in retained_players_inputs:
                 player_data = {
@@ -516,14 +574,13 @@ def retention():
                     "Price": player_price,
                     "RTM": False,
                 }
-                # Append the player data
-                st.session_state.player_data[team_name].append(player_data)
+                if not any(p['Name'] == player_name for p in st.session_state.player_data[team_name]):
+                    st.session_state.player_data[team_name].append(player_data)
                 
-                # Deduct budget
                 st.session_state.budgets[team_name] -= player_price
 
             st.success(f"Retained players for {team_name} have been added to the squad. Remaining Budget: {st.session_state.budgets[team_name]} Lakhs.")
-            st.rerun() # Rerun to update the budget display in the Auction tab
+            st.rerun() 
 
     with st.sidebar:
         st.image("auc.png", width=250)
